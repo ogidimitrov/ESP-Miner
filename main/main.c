@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <time.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
@@ -213,9 +214,15 @@ void app_main(void)
         // default to pool.ntp.org to find the nearest NTP server if none are provided by DHCP
         esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
         config.start = true;
-        config.smooth_sync = true;
-        config.server_from_dhcp = true;
-        config.renew_servers_after_new_IP = true; // replace default with DHCP-provided server(s)
+        // Step the clock, do not slew it. With smooth_sync a sync is reported as done while
+        // adjtime() corrects the offset at a few hundred ppm, so an offset of minutes stays
+        // visible for days (seen 2026-10-25: the OLED clock sat ~16 minutes behind all
+        // session even though SNTP reported success on its first wait).
+        config.smooth_sync = false;
+        // Always use pool.ntp.org rather than whatever DHCP option 42 advertises: a router
+        // that serves a wrong clock would otherwise be trusted for the whole LAN.
+        config.server_from_dhcp = false;
+        config.renew_servers_after_new_IP = false;
         config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
         esp_netif_sntp_init(&config);
 
@@ -226,6 +233,15 @@ void app_main(void)
         if (retry == -1) {
             ESP_LOGW(TAG, "Failed to get NTP in time! Certificate validation may fail!");
         }
+
+        // Log what the clock actually ended up at, so the time can be checked from the log
+        // instead of by looking at the panel.
+        time_t ntp_now = time(NULL);
+        struct tm ntp_utc;
+        gmtime_r(&ntp_now, &ntp_utc);
+        ESP_LOGI(TAG, "SNTP done: time()=%lld (%04d-%02d-%02d %02d:%02d:%02d UTC)",
+                 (long long) ntp_now, ntp_utc.tm_year + 1900, ntp_utc.tm_mon + 1,
+                 ntp_utc.tm_mday, ntp_utc.tm_hour, ntp_utc.tm_min, ntp_utc.tm_sec);
     }
 
     miner_job_pool_init();
