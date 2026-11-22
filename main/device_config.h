@@ -18,6 +18,7 @@ extern const TPS546_CONFIG TPS546_CONFIG_HEX;
 extern const TPS546_CONFIG TPS546_CONFIG_GAMMA_TURBO;
 extern const TPS546_CONFIG TPS546_CONFIG_NAJA_DUO;
 extern const TPS546_CONFIG TPS546_CONFIG_GAMMA_HEX;
+extern const TPS546_CONFIG TPS546_CONFIG_GAMMA_V2;
 
 typedef enum
 {
@@ -62,6 +63,9 @@ typedef enum
     GAMMA_HEX,
     GAMMA_TURBO,
     NAJA_DUO,
+    // 12 V single-ASIC Gamma variant used by StarMiner "601a" boards; appended so
+    // existing enum values are unchanged.
+    GAMMA_V2,
 } Family;
 
 typedef struct FamilyConfig {
@@ -145,6 +149,11 @@ static const FamilyConfig FAMILY_GAMMA_TURBO = { .id = GAMMA_TURBO, .name = "Gam
 static const FamilyConfig FAMILY_NAJA_DUO    = { .id = NAJA_DUO,    .name = "NajaDuo",    .asic = ASIC_BM1373,   .asic_count = 2, .max_power =  60, .power_offset = 0,  .nominal_voltage = 12, .voltage_domains = NAJA_DUO_VOLTAGE_DOMAINS, .swarm_color = "magenta",  .tps546_config = &TPS546_CONFIG_NAJA_DUO, };
 static const FamilyConfig FAMILY_GAMMA_HEX   = { .id = GAMMA_HEX,   .name = "GammaHex",   .asic = ASIC_BM1370_HEX, .asic_count = 6, .max_power = 180, .power_offset = 25, .nominal_voltage = 12, .voltage_domains = GAMMA_HEX_VOLTAGE_DOMAINS, .swarm_color = "cyan", .tps546_config = &TPS546_CONFIG_GAMMA_HEX, };
 
+// Same electrical shape as FAMILY_GAMMA, but a 12 V input rail. Values decoded from
+// the vendor firmware of a StarMiner "601a" board: name "GammaV2", 1x BM1370,
+// max_power 40, power_offset 5, nominal_voltage 12, voltage_domains 1, "green".
+static const FamilyConfig FAMILY_GAMMA_V2    = { .id = GAMMA_V2,    .name = "GammaV2",    .asic = ASIC_BM1370,   .asic_count = 1, .max_power =  40, .power_offset = 5,  .nominal_voltage = 12, .voltage_domains = 1, .swarm_color = "green",    .tps546_config = &TPS546_CONFIG_GAMMA_V2, };
+
 static const FamilyConfig default_families[] = {
     FAMILY_MAX,
     FAMILY_ULTRA,
@@ -175,6 +184,10 @@ static const DeviceConfig default_configs[] = {
     { .board_version = "403",  .family = FAMILY_SUPRA,       .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true,                                                                                 .TPS546 = true,                                                           .power_consumption_target = 8,  },
     { .board_version = "600",  .family = FAMILY_GAMMA,       .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true, .emc_ideality_factor = 0x24, .emc_beta_compensation = 0x00,                     .TPS546 = true,                                                           .power_consumption_target = 19, },
     { .board_version = "601",  .family = FAMILY_GAMMA,       .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true, .emc_ideality_factor = 0x24, .emc_beta_compensation = 0x00,                     .TPS546 = true,                                                           .power_consumption_target = 19, },
+    // StarMiner rebrand: a "601a" board reports family GammaV2 (12 V input) rather than
+    // the standard Gamma (5 V). Without this row the board falls through to the "custom
+    // board version" path, matches no family, and never initialises its power stage.
+    { .board_version = "601a", .family = FAMILY_GAMMA_V2,    .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true, .emc_ideality_factor = 0x24, .emc_beta_compensation = 0x00,                     .TPS546 = true,                                                           .power_consumption_target = 19, },
     { .board_version = "602",  .family = FAMILY_GAMMA,       .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true, .emc_ideality_factor = 0x24, .emc_beta_compensation = 0x00,                     .TPS546 = true,                                                           .power_consumption_target = 22, },
     { .board_version = "603",  .family = FAMILY_GAMMA,       .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true, .emc_ideality_factor = 0x24, .emc_beta_compensation = 0x00,                     .TPS546 = true,                                                           .power_consumption_target = 22, },
     { .board_version = "650",  .family = FAMILY_GAMMA_DUO,   .pins = BITAXE_ORIGINAL_PINS, .EMC2101 = true, .emc_ideality_factor = 0x24, .emc_beta_compensation = 0x00,                     .TPS546 = true,                                                           .power_consumption_target = 35, },

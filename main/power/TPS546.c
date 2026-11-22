@@ -49,6 +49,32 @@ const TPS546_CONFIG TPS546_CONFIG_DEFAULT = {
     .TPS546_INIT_COMPENSATION_CONFIG = {0},
 };
 
+const TPS546_CONFIG TPS546_CONFIG_GAMMA_V2 = {
+    /* 12 V-input single-ASIC Gamma variant (StarMiner "601a").
+     * Electrical behaviour matches TPS546_CONFIG_DEFAULT (single phase, 650 kHz,
+     * 1.2 V VOUT_COMMAND, SYNC 0x10, default compensation);
+     * only the input-rail protections are raised for a 12 V feed, reusing the
+     * thresholds this project already ships for its 12 V Gamma (board 801).
+     * OC limits are 30/35 A rather than DEFAULT's 25/30 A: this family is a
+     * 40 W single-ASIC board (40 W / 1.15 V = 34.8 A), and at 25/30 A the VR
+     * latched off on IOUT_OC within ~2-3 min of every boot at 525 MHz. */
+    .TPS546_INIT_PHASE = TPS546_INIT_PHASE_SINGLE,
+    .TPS546_INIT_VIN_ON = 11.0,
+    .TPS546_INIT_VIN_OFF = 10.5,
+    .TPS546_INIT_VIN_UV_WARN_LIMIT = 11.0,
+    .TPS546_INIT_VIN_OV_FAULT_LIMIT = 14.8,
+    .TPS546_INIT_SCALE_LOOP = 0.25,
+    .TPS546_INIT_VOUT_MIN = 1,
+    .TPS546_INIT_VOUT_MAX = 2,
+    .TPS546_INIT_VOUT_COMMAND = 1.2,
+    .TPS546_INIT_IOUT_OC_WARN_LIMIT = 30.00,
+    .TPS546_INIT_IOUT_OC_FAULT_LIMIT = 35.00,
+    .TPS546_INIT_STACK_CONFIG = TPS546_SINGLE_PHASE_STACK_CONFIG,
+    .TPS546_INIT_SYNC_CONFIG = 0x10,
+    .TPS546_INIT_FREQUENCY = TPS546_DEFAULT_FREQUENCY,
+    .TPS546_INIT_COMPENSATION_CONFIG = {0},
+};
+
 const TPS546_CONFIG TPS546_CONFIG_HEX = {
     .TPS546_INIT_PHASE = TPS546_INIT_PHASE_SINGLE,
     .TPS546_INIT_VIN_ON = 11.5,
