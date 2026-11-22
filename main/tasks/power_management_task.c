@@ -14,7 +14,11 @@
 
 #define POLL_RATE 100
 #define MAX_TEMP 90.0
-#define THROTTLE_TEMP 75.0
+// Raised from 75: the user-facing cut-off is SHUTDOWN_TEMP below, which stops mining quietly and
+// leaves the configured fan speed alone. This stays as the last-resort backstop that also forces
+// the fan to 100 % and cuts clocks, so it must sit ABOVE SHUTDOWN_TEMP.
+#define THROTTLE_TEMP 85.0
+#define SHUTDOWN_TEMP 80.0
 #define SAFE_TEMP 45.0
 
 #define VOLTAGE_START_THROTTLE 4900
@@ -25,6 +29,10 @@
 #define TPS546_MAX_TEMP 145.0
 
 #define ASIC_REDUCTION 100.0
+
+// Consecutive over-temperature polls required before the safe-mode trip. Guards against a
+// single bad sensor sample; 30 x POLL_RATE(100 ms) = ~3 s of sustained overheat.
+#define OVERHEAT_CONFIRM_SAMPLES 30
 
 static const char * TAG = "power_management";
 
@@ -140,6 +148,24 @@ void POWER_MANAGEMENT_task(void * pvParameters)
         power_management->chip_temp2_avg = Thermal_get_chip_temp2(GLOBAL_STATE);
 
         power_management->vr_temp = Power_get_vreg_temp(GLOBAL_STATE);
+
+        // Hard thermal cut-off: stop mining above SHUTDOWN_TEMP but leave the fan alone, so a
+        // static (manual) fan speed stays quiet instead of ramping. Debounced like the overheat
+        // trip below so one bad sensor sample cannot halt an otherwise healthy miner. Uses the
+        // ordinary mining_paused path, so nothing is written to NVS and the fan is not touched.
+        static uint16_t shutdown_samples = 0;
+        if (power_management->chip_temp_avg > SHUTDOWN_TEMP) {
+            if (shutdown_samples < OVERHEAT_CONFIRM_SAMPLES) {
+                shutdown_samples++;
+            }
+        } else {
+            shutdown_samples = 0;
+        }
+        if (shutdown_samples >= OVERHEAT_CONFIRM_SAMPLES && !sys_module->mining_paused) {
+            ESP_LOGE(TAG, "CHIP %.1fC EXCEEDS %.0fC CUT-OFF - shutting down mining (fan speed left as configured)", power_management->chip_temp_avg, SHUTDOWN_TEMP);
+            sys_module->mining_paused = true;
+        }
+
         // User pause, hardware fault, or all pools unreachable
         bool wants_stop = sys_module->mining_paused || sys_module->hardware_fault || sys_module->pools_unavailable;
         if (wants_stop && !is_paused) {
@@ -160,7 +186,22 @@ void POWER_MANAGEMENT_task(void * pvParameters)
             power_management->chip_temp_avg > THROTTLE_TEMP
             || power_management->chip_temp2_avg > THROTTLE_TEMP;
 
-        if ((power_management->vr_temp > TPS546_THROTTLE_TEMP || asic_overheat) && (power_management->frequency_value > 50 || power_management->voltage > 1000)) {
+        // Require the condition to persist before acting. A single glitched thermal sample
+        // has been observed on this board jumping 60.4 C -> 86.6 C in 300 ms on a die that was
+        // being held at 60 C with its fan at 50 %, which is physically impossible and used to
+        // halt mining, pin the fan to 100 % and permanently shave 100 MHz / 100 mV off the
+        // clocks. At POLL_RATE 100 ms this is ~3 s of genuine overheat before tripping.
+        static uint16_t overheat_samples = 0;
+        if (power_management->vr_temp > TPS546_THROTTLE_TEMP || asic_overheat) {
+            if (overheat_samples < OVERHEAT_CONFIRM_SAMPLES) {
+                overheat_samples++;
+            }
+        } else {
+            overheat_samples = 0;
+        }
+
+        if (overheat_samples >= OVERHEAT_CONFIRM_SAMPLES && (power_management->frequency_value > 50 || power_management->voltage > 1000)) {
+            overheat_samples = 0;
             if (power_management->chip_temp2_avg > 0) {
                 ESP_LOGE(TAG, "OVERHEAT! VR: %fC ASIC1: %fC ASIC2: %fC", power_management->vr_temp, power_management->chip_temp_avg, power_management->chip_temp2_avg);
             } else {
