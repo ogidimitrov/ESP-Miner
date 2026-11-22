@@ -9,7 +9,7 @@
 #define LV_USE_OS LV_OS_FREERTOS
 
 #define LV_DRAW_SW_SUPPORT_RGB565_SWAPPED         0
-#define LV_DRAW_SW_SUPPORT_RGB565A8               0
+#define LV_DRAW_SW_SUPPORT_RGB565A8               1   /* pickaxe frames: RGB565 + alpha */
 #define LV_DRAW_SW_SUPPORT_RGB888                 0
 #define LV_DRAW_SW_SUPPORT_XRGB8888               0
 #define LV_DRAW_SW_SUPPORT_ARGB8888               1
@@ -45,7 +45,7 @@
 #define LV_USE_IMAGEBUTTON  0
 #define LV_USE_KEYBOARD     0
 #define LV_USE_LED          0
-#define LV_USE_LINE         0
+#define LV_USE_LINE         1   /* sparklines on the hashrate / temperature screens */
 #define LV_USE_LIST         0
 #define LV_USE_MENU         0
 #define LV_USE_MSGBOX       0
