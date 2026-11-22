@@ -42,6 +42,21 @@
 #define NVS_COUNTER_UPDATE_INTERVAL_MS 60 * 60 * 1000  // Update NVS once per hour
 #define NOINIT_SENTINEL_VALUE 0x4C4F4732       // "LOG2" in hex
 
+// --- Payout guard ---------------------------------------------------------
+// In Stratum V1 the POOL builds the coinbase, so it can hand us a template that pays
+// someone else. It cannot re-target a block after the fact (the proof of work commits to
+// the merkle root, and therefore to the coinbase), so verifying each template is the one
+// check that removes the trust. The address is hardcoded on purpose: no API call, config
+// edit or pool response can weaken it. Change it here and rebuild if the wallet moves.
+#define BITAXE_REQUIRED_PAYOUT_ADDRESS "bc1qa5h277qnza2p8svksvq3eezkqqcmkarks4pugw"
+
+// True while WE stopped mining because of a bad template, so that a later good template can
+// resume without clobbering a pause the user asked for.
+static bool payout_guard_tripped = false;
+// Set after the first template that passes, purely so the log shows the guard is live.
+static bool payout_guard_verified = false;
+
+
 typedef struct
 {
     uint64_t total_uptime;            // Total uptime in seconds
@@ -608,6 +623,61 @@ void SYSTEM_decode_and_apply_coinbase(GlobalState * GLOBAL_STATE, const miner_jo
         if (result->others_count > 0) {
             ESP_LOGI(TAG, "  + %d other output(s) aggregated (%llu sat)", result->others_count, result->others_value_satoshis);
         }
+    }
+
+    // Refuse to hash a template that does not pay us IN FULL. Runs on every job, so a pool
+    // cannot pass the check once and then switch. Two ways to fail:
+    //   1. our address is absent  -> the reward goes to someone else entirely
+    //   2. our address is present but value also goes to other outputs -> a skim, which an
+    //      address-only check would happily wave through (pay us 1 BTC, keep 2 BTC).
+    // Value is summed from the decoded outputs themselves rather than trusting the pool's
+    // user_value bookkeeping, and unreported overflow (outputs beyond the stored slots,
+    // which the decoder only ever evicts for non-user outputs) counts as paid elsewhere.
+    if (result->decode_coinbase_tx) {
+        uint64_t paid_to_us = 0;
+        uint64_t paid_elsewhere = 0;
+        for (int i = 0; i < result->output_count; i++) {
+            if (strcmp(result->outputs[i].address, BITAXE_REQUIRED_PAYOUT_ADDRESS) == 0) {
+                paid_to_us += result->outputs[i].value_satoshis;
+            } else {
+                paid_elsewhere += result->outputs[i].value_satoshis;
+            }
+        }
+        if (result->total_value_satoshis > paid_to_us + paid_elsewhere) {
+            paid_elsewhere += result->total_value_satoshis - (paid_to_us + paid_elsewhere);
+        }
+
+        bool pays_us = paid_to_us > 0;
+
+        if (!pays_us || paid_elsewhere > 0) {
+            if (!payout_guard_tripped) {
+                payout_guard_tripped = true;
+                GLOBAL_STATE->SYSTEM_MODULE.mining_paused = true;
+                if (!pays_us) {
+                    ESP_LOGE(TAG, "PAYOUT GUARD: job %s does not pay %s - mining STOPPED",
+                             job->job_id, BITAXE_REQUIRED_PAYOUT_ADDRESS);
+                } else {
+                    ESP_LOGE(TAG, "PAYOUT GUARD: job %s pays %s only %llu of %llu sat (%llu sat diverted) - mining STOPPED",
+                             job->job_id, BITAXE_REQUIRED_PAYOUT_ADDRESS,
+                             paid_to_us, result->total_value_satoshis, paid_elsewhere);
+                }
+                for (int i = 0; i < result->output_count; i++) {
+                    ESP_LOGE(TAG, "PAYOUT GUARD:   output %d -> %s (%llu sat)",
+                             i, result->outputs[i].address, result->outputs[i].value_satoshis);
+                }
+            }
+        } else if (payout_guard_tripped) {
+            payout_guard_tripped = false;
+            GLOBAL_STATE->SYSTEM_MODULE.mining_paused = false;
+            ESP_LOGI(TAG, "PAYOUT GUARD: template pays %s in full (%llu sat) - resuming",
+                     BITAXE_REQUIRED_PAYOUT_ADDRESS, paid_to_us);
+        } else if (!payout_guard_verified) {
+            payout_guard_verified = true;
+            ESP_LOGI(TAG, "PAYOUT GUARD: template pays %s in full (%llu of %llu sat) - verified",
+                     BITAXE_REQUIRED_PAYOUT_ADDRESS, paid_to_us, result->total_value_satoshis);
+        }
+    } else if (!payout_guard_tripped) {
+        ESP_LOGW(TAG, "PAYOUT GUARD: coinbase decoding is disabled - payout cannot be verified");
     }
 
     free(result);
